@@ -8,6 +8,8 @@ export const ErrorCatalog = {
   AUTH_INVALID: { status: 401, message: 'The email or password is incorrect.' },
   TURNSTILE_FAILED: { status: 400, message: 'Complete the security verification and try again.' },
   TURNSTILE_UNAVAILABLE: { status: 503, message: 'Security verification is temporarily unavailable. Please try again shortly.' },
+  AI_CREDENTIAL_INVALID: { status: 400, message: 'NVIDIA rejected this API key. Check the key and try again.' },
+  AI_MODEL_UNAVAILABLE: { status: 400, message: 'The selected NVIDIA model is not available for this API key.' },
   FORBIDDEN: { status: 403, message: 'This request is not allowed from the current origin.' },
   ACCOUNT_EXISTS: { status: 409, message: 'An account with this email already exists.' },
   NOT_FOUND: { status: 404, message: 'The requested resource could not be found.' },
@@ -88,5 +90,14 @@ export function sendErrorResponse(response: Response, error: AppError, requestId
       message: error.publicMessage,
       requestId: requestId ?? null,
     },
+  })
+}
+
+export function safeRequestFailureLog(error: AppError, requestId: unknown) {
+  return JSON.stringify({
+    event: 'request_failed',
+    requestId: typeof requestId === 'string' ? requestId : null,
+    code: error.code,
+    status: error.status,
   })
 }

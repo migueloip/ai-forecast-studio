@@ -8,8 +8,9 @@ import { rateLimit } from 'express-rate-limit'
 import { authenticateUser, createSession, destroySession, registerUser, requireAuth } from './auth.js'
 import { config, configurationStatus } from './config.js'
 import { databaseIsReachable } from './db.js'
-import { appError, normalizeError, sendErrorResponse } from './errors/index.js'
+import { appError, normalizeError, safeRequestFailureLog, sendErrorResponse } from './errors/index.js'
 import { requireTurnstile } from './turnstile.js'
+import { deleteAiCredential, getAiCredentialStatus, resolveAiProvider, saveNvidiaCredential, testNvidiaCredential } from './ai-credentials.js'
 import { createSampleDataset, parseDataset, profileDataset } from './ingestion.js'
 import { migrate } from './migrate.js'
 import { cancelRunningMeetingJob, createAnalysis, enqueueTeamMeeting, getAnalysis, getLatestAnalysis, listAnalysisContexts, recoverInterruptedAnalyses, retryAnalysis, runAnalysis, runMeetingJob } from './orchestrator.js'
@@ -73,8 +74,8 @@ app.get('/api/health', asyncRoute(async (_request, response) => {
   const status = configurationStatus()
   const database = status.database ? await databaseIsReachable() : false
   response.json({
-    status: database && status.openai && status.turnstile ? 'ready' : 'configuration_required',
-    services: { database, openai: status.openai, turnstile: status.turnstile },
+    status: database && status.turnstile && (status.openai || status.credentialEncryption) ? 'ready' : 'configuration_required',
+    services: { database, openai: status.openai, credentialEncryption: status.credentialEncryption, turnstile: status.turnstile },
     model: status.model,
     provider: status.provider,
   })
@@ -82,6 +83,11 @@ app.get('/api/health', asyncRoute(async (_request, response) => {
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1_000, limit: 30, standardHeaders: true, legacyHeaders: false,
+  handler: (_request, response) => sendErrorResponse(response, appError('RATE_LIMITED'), response.locals.requestId),
+})
+
+const credentialTestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000, limit: 10, standardHeaders: true, legacyHeaders: false,
   handler: (_request, response) => sendErrorResponse(response, appError('RATE_LIMITED'), response.locals.requestId),
 })
 
@@ -239,6 +245,34 @@ app.put('/api/preferences', asyncRoute(async (request, response) => {
     custom_instructions: text(request.body?.custom_instructions, '', 1_500),
   })
   response.json({ preferences })
+}))
+
+app.get('/api/ai-credential', asyncRoute(async (_request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ credential: await getAiCredentialStatus(response.locals.user.id) })
+}))
+
+app.put('/api/ai-credential', asyncRoute(async (request, response) => {
+  const apiKey = typeof request.body?.apiKey === 'string' ? request.body.apiKey : ''
+  const model = typeof request.body?.model === 'string' ? request.body.model : ''
+  const credential = await saveNvidiaCredential(response.locals.user.id, apiKey, model)
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ credential })
+}))
+
+app.delete('/api/ai-credential', asyncRoute(async (_request, response) => {
+  const credential = await deleteAiCredential(response.locals.user.id)
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ credential })
+}))
+
+app.post('/api/ai-credential/test', credentialTestLimiter, asyncRoute(async (request, response) => {
+  const draftKey = typeof request.body?.apiKey === 'string' ? request.body.apiKey.trim() : ''
+  const draftModel = typeof request.body?.model === 'string' ? request.body.model.trim() : ''
+  const saved = draftKey ? null : await resolveAiProvider(response.locals.user.id)
+  const result = await testNvidiaCredential(draftKey || saved?.apiKey || '', draftModel || saved?.model || '')
+  response.setHeader('Cache-Control', 'no-store')
+  response.json(result)
 }))
 
 app.get('/api/bookmarks', asyncRoute(async (_request, response) => {
@@ -535,7 +569,7 @@ app.use((_request, _response, next) => next(appError('ROUTE_NOT_FOUND')))
 const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
   void next
   const normalized = normalizeError(error)
-  if (normalized.status >= 500) console.error(`[${response.locals.requestId}] ${normalized.code}`, error)
+  if (normalized.status >= 500) console.error(safeRequestFailureLog(normalized, response.locals.requestId))
   sendErrorResponse(response, normalized, response.locals.requestId)
 }
 

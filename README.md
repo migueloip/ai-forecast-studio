@@ -12,7 +12,7 @@ Transforms business data into statistically validated forecasts, executive recom
 ![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)
 ![Neon Postgres](https://img.shields.io/badge/Neon-Postgres-00E599?logo=postgresql&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Tests](https://img.shields.io/badge/server%20tests-29%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/server%20tests-36%20passing-brightgreen)
 ![Forecast tests](https://img.shields.io/badge/forecast%20tests-3%20passing-brightgreen)
 
 </div>
@@ -155,7 +155,8 @@ npm install
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and set DATABASE_URL and AI_API_KEY
+# Edit .env and set DATABASE_URL, Turnstile, and either AI_API_KEY or
+# CREDENTIAL_ENCRYPTION_KEY for per-user NVIDIA keys
 
 # 3. (Optional but recommended) set up the Python forecast engine
 npm run forecast:setup      # creates .venv and installs the scientific stack
@@ -172,13 +173,13 @@ npm run dev
 - **Web** → http://localhost:5173 (Vite)
 - **API** → http://127.0.0.1:8787 (Express, with a dev proxy from `/api`)
 
-Confirm that both required services are configured:
+Confirm that the required services are configured:
 
 ```bash
 curl http://127.0.0.1:8787/api/health
 ```
 
-A ready installation returns `"status":"ready"` with both `database` and `openai` set to `true`. Then create an account, connect a dataset (or use the built‑in **Northstar Retail** sample), deploy your AI team, and open the Command Center when Atlas's briefing is ready.
+A ready installation returns `"status":"ready"`. It requires the database, Turnstile, and either a server-managed AI key or a valid credential-encryption key so each user can add an NVIDIA key in **Settings**. Then create an account, connect a dataset (or use the built‑in **Northstar Retail** sample), deploy your AI team, and open the Command Center when Atlas's briefing is ready.
 
 > Without the Python engine, forecasting automatically uses the validated statistical fallback — the app still runs end‑to‑end.
 
@@ -217,7 +218,7 @@ All configuration is via `.env` (see [`.env.example`](.env.example)):
 | --- | --- | --- |
 | `DATABASE_URL` | Neon pooled connection string | — (required) |
 | `AI_BASE_URL` | OpenAI‑compatible endpoint | `https://integrate.api.nvidia.com/v1` |
-| `AI_API_KEY` | Inference provider key | — (required) |
+| `AI_API_KEY` | Server-managed inference key used when a user has no personal key | `nvapi-...` (optional with BYOK) |
 | `AI_MODEL` | Model id | `openai/gpt-oss-120b` |
 | `AI_TIMEOUT_MS` | Per‑call timeout | `300000` |
 | `AI_MAX_RETRIES` | Provider retry attempts | `1` |
@@ -225,8 +226,12 @@ All configuration is via `.env` (see [`.env.example`](.env.example)):
 | `AI_BRIEFING_MAX_TOKENS` | Cap for executive briefing | `1600` |
 | `AI_REASONING_EFFORT` | `low` \| `medium` \| `high` | `low` |
 | `MEETING_JOB_TIMEOUT_MS` | Team‑meeting job budget | `360000` |
+| `CREDENTIAL_ENCRYPTION_KEY` | Stable 32-byte base64 key used to encrypt users' NVIDIA keys with AES-256-GCM | — (required for BYOK) |
 | `FORECAST_PYTHON_BIN` | Python interpreter for the engine | `.venv/bin/python` |
 | `FORECAST_ENGINE_TIMEOUT_MS` | Engine execution budget | `180000` |
+| `VITE_TURNSTILE_SITE_KEY` | Public Cloudflare Turnstile site key compiled into the web app | — |
+| `TURNSTILE_SECRET_KEY` | Private Turnstile key used only by the API | — |
+| `TURNSTILE_TIMEOUT_MS` | Turnstile Siteverify timeout | `10000` |
 | `PORT` | Port the server binds (takes precedence over `API_PORT`; set automatically by hosts like Render) | — |
 | `API_PORT` | API port when `PORT` is unset | `8787` |
 | `HOST` | Interface to bind | `0.0.0.0` |
@@ -235,6 +240,20 @@ All configuration is via `.env` (see [`.env.example`](.env.example)):
 | `MAX_DATASET_ROWS` | Max rows per dataset | `50000` |
 
 The template explicitly selects NVIDIA. If `AI_BASE_URL` and `AI_MODEL` are omitted, the application defaults to the native OpenAI endpoint and `gpt-5.4-mini`. `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` are also accepted as compatibility aliases. When `FORECAST_PYTHON_BIN` is unset, the server uses `.venv/bin/python` when present and otherwise tries `python3`.
+
+### Per-user NVIDIA Build / NIM keys
+
+Users can open **Settings → NVIDIA Build / NIM**, enter an API key generated at [build.nvidia.com](https://build.nvidia.com/), select a model ID such as `openai/gpt-oss-120b`, test the connection, and save or remove the key. A personal key takes precedence over `AI_API_KEY` for that user's analyses and Team Meetings; removing it restores the server-managed fallback when one exists.
+
+Generate the local encryption master key once:
+
+```bash
+openssl rand -base64 32
+```
+
+Place the result in `CREDENTIAL_ENCRYPTION_KEY`. The browser sends a new NVIDIA key only when saving or testing it. The API encrypts it with AES-256-GCM and user-bound authenticated data before writing ciphertext, IV, and authentication tag to Neon. Read APIs return only a masked suffix and configuration status. The master key remains in the local/server `.env` and is never stored in the database.
+
+> Back up `CREDENTIAL_ENCRYPTION_KEY` in a password manager or secret manager. Changing or losing it makes all previously saved personal keys unreadable. Do not use `VITE_` for this value or for any NVIDIA secret.
 
 **Using the native OpenAI API instead of NVIDIA:**
 
@@ -265,7 +284,7 @@ NODE_ENV=production npm run start:server
 | **Build Command** | `npm ci && npm run build && npm run db:migrate` |
 | **Start Command** | `npm run start:server` |
 
-The host injects `PORT`; the server reads it automatically (falling back to `API_PORT`, then `8787`) and listens on `0.0.0.0`. Set the environment variables from [Configuration](#configuration) — at minimum `DATABASE_URL`, `AI_API_KEY`, and `APP_ORIGIN` set to your deployed HTTPS origin (required for the secure session cookie and the mutation‑origin allowlist). The `forecast:setup` step needs Python 3.12 and `uv` in the build image; omit it to run on the validated statistical fallback.
+The host injects `PORT`; the server reads it automatically (falling back to `API_PORT`, then `8787`) and listens on `0.0.0.0`. Set the environment variables from [Configuration](#configuration) — at minimum `DATABASE_URL`, `APP_ORIGIN`, both Turnstile keys, and either `AI_API_KEY` or `CREDENTIAL_ENCRYPTION_KEY`. The `forecast:setup` step needs Python 3.12 and `uv` in the build image; omit it to run on the validated statistical fallback.
 
 The API applies its idempotent schema at startup when `DATABASE_URL` is set; running `npm run db:migrate` in the build step keeps migration failures visible before traffic is switched over.
 
@@ -298,7 +317,7 @@ You can still host `dist/` as a static site and run the API separately. Point a 
 │   ├── repositories.ts       # Data access & ownership enforcement
 │   ├── schema.ts             # Idempotent Neon schema statements
 │   ├── errors/               # Centralized error catalog
-│   └── *.test.ts             # 29 node:test cases
+│   └── *.test.ts             # server node:test suite
 │
 └── forecast_engine/          # Python scientific runtime
     ├── engine.py             # 19-model walk-forward tournament
@@ -375,6 +394,8 @@ Every `/api` route except health, registration, login, token issuance and public
 | `GET` | `/api/executive/overview` | Command Center summary |
 | `GET` | `/api/search` | Executive search over evidence |
 | `GET`/`PUT` | `/api/preferences` | AI‑team preferences |
+| `GET`/`PUT`/`DELETE` | `/api/ai-credential` | Masked status; save or remove an encrypted personal NVIDIA key |
+| `POST` | `/api/ai-credential/test` | Verify an NVIDIA key and model without exposing the key |
 | `GET`/`POST`/`DELETE` | `/api/bookmarks[/:id]` | Saved evidence |
 | `GET` | `/api/notifications` | Notifications + unread count |
 | `PATCH` | `/api/notifications/:id/read` | Mark one read |
@@ -395,10 +416,18 @@ Every `/api` route except health, registration, login, token issuance and public
 - **Sessions** are opaque random tokens; only their SHA‑256 hashes are persisted, and logout revokes them. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
 - **CSRF/CORS** — browser mutations carrying an `Origin` header must match the `APP_ORIGIN` allowlist; credentialed cross‑origin responses use the same list.
 - **Rate limiting** on auth endpoints.
+- **Per-user AI credentials** — NVIDIA keys are encrypted with AES-256-GCM and user-bound authenticated data before database storage; plaintext exists only while the API process creates the provider request and is never returned by read endpoints.
 - **Row ownership** enforced on every dataset and analysis query.
 - **Data minimization** — the LLM receives only profiles, aggregates and redacted samples; sensitive columns detected at ingestion are excluded from model samples.
 - **Deduplication integrity** — a partial unique index in Neon prevents duplicate uploads within a workspace, even under concurrency.
 - **Safe errors** — a centralized catalog guarantees no internal detail leaks to clients.
+
+### Pre-deployment secret checklist
+
+- `.env` is ignored by Git; only `.env.example` is tracked and it contains placeholders rather than private values. Before every release, verify with `git check-ignore -v .env` and scan repository history if a real secret was ever copied into a tracked file.
+- `POST /api/ai-credential/test` is limited to 10 requests per client IP every 15 minutes. The endpoint is authenticated and the normal mutation-origin policy still applies.
+- Provider failures are logged as structured metadata only: event name, request id, safe application error code, status, attempt and timing where applicable. API keys, `Authorization`/cookie headers, request bodies, provider response bodies, raw errors and stack traces are not logged.
+- `user_ai_credentials.user_id` references `users.id` with `ON DELETE CASCADE`; deleting the user row removes the encrypted credential automatically. Removing only the personal key uses the authenticated `DELETE /api/ai-credential` route.
 
 ---
 
@@ -407,12 +436,12 @@ Every `/api` route except health, registration, login, token issuance and public
 ```bash
 npm run lint            # ESLint
 npm run build           # tsc (web + server) and Vite build
-npm run test:server     # 29 node:test cases
+npm run test:server     # server node:test suite
 npm run test:forecast   # 3 Python engine tests (needs .venv)
 npm audit --omit=dev    # dependency audit
 ```
 
-Server tests cover analytics, ingestion, error normalization, formatting, job reliability/recovery, meeting deep‑links, and Decision Room scenario history. Forecast tests cover cadence detection, common walk‑forward validation, complexity rejection on short histories, confidence recomputation, and interval ordering.
+Server tests cover analytics, ingestion, credential encryption, Turnstile, error normalization, formatting, job reliability/recovery, meeting deep‑links, and Decision Room scenario history. Forecast tests cover cadence detection, common walk‑forward validation, complexity rejection on short histories, confidence recomputation, and interval ordering.
 
 ---
 

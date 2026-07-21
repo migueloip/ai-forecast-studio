@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import OpenAI from 'openai'
 import { z } from 'zod'
 import { config } from './config.js'
-import { ConfigurationError, query } from './db.js'
+import { query } from './db.js'
+import { resolveAiProvider } from './ai-credentials.js'
 import { getDatasetAnalytics, getDatasetContext } from './repositories.js'
 import type { DatasetAnalytics } from './analytics.js'
 import { notifySafely } from './notifications.js'
@@ -121,9 +122,17 @@ const teamLead = {
   role: 'AI Chief Data Scientist',
 }
 
-function openaiClient() {
-  if (!config.aiApiKey) throw new ConfigurationError('AI_API_KEY is not configured. Add your provider key to .env before starting an analysis.')
-  return new OpenAI({ apiKey: config.aiApiKey, baseURL: config.aiBaseUrl, timeout: config.aiTimeoutMs, maxRetries: 0 })
+interface AiRuntime {
+  client: OpenAI
+  model: string
+}
+
+async function openaiClient(userId: string, modelOverride?: string): Promise<AiRuntime> {
+  const provider = await resolveAiProvider(userId)
+  return {
+    client: new OpenAI({ apiKey: provider.apiKey, baseURL: provider.baseUrl, timeout: config.aiTimeoutMs, maxRetries: 0 }),
+    model: modelOverride ?? provider.model,
+  }
 }
 
 function retryableProviderError(error: unknown) {
@@ -150,7 +159,7 @@ function extractJson(content: string) {
 }
 
 async function structuredCompletion<Schema extends z.ZodType>(
-  client: OpenAI,
+  runtime: AiRuntime,
   schema: Schema,
   schemaName: string,
   instructions: string,
@@ -173,8 +182,8 @@ async function structuredCompletion<Schema extends z.ZodType>(
     let completion: OpenAI.Chat.Completions.ChatCompletion | null = null
     for (let providerAttempt = 0; providerAttempt <= config.aiMaxRetries; providerAttempt += 1) {
       try {
-        completion = await client.chat.completions.create({
-        model: config.aiModel,
+        completion = await runtime.client.chat.completions.create({
+        model: runtime.model,
         messages,
         temperature: 1,
         top_p: 1,
@@ -210,14 +219,14 @@ async function structuredCompletion<Schema extends z.ZodType>(
 }
 
 async function createSpecialistFinding(
-  client: OpenAI,
+  runtime: AiRuntime,
   agent: (typeof specialistAgents)[number],
   datasetContext: string,
   mission: string,
   priorFindings: AgentFinding[],
 ) {
   const { output, responseId } = await structuredCompletion(
-    client,
+    runtime,
     AgentFindingSchema,
     `${agent.key}_finding`,
     [
@@ -232,9 +241,9 @@ async function createSpecialistFinding(
   return { finding: output, responseId }
 }
 
-async function createBriefing(client: OpenAI, mission: string, findings: AgentFinding[], analyticsList: Array<DatasetAnalytics | null>) {
+async function createBriefing(runtime: AiRuntime, mission: string, findings: AgentFinding[], analyticsList: Array<DatasetAnalytics | null>) {
   const { output, responseId } = await structuredCompletion(
-    client,
+    runtime,
     BriefingSchema,
     'executive_briefing',
     [
@@ -281,7 +290,7 @@ async function createAgentRun(analysisId: string, key: string, name: string, rol
 }
 
 export async function createAnalysis(userId: string, datasetIds: string[], mission: string) {
-  if (!config.aiApiKey) throw new ConfigurationError('AI_API_KEY is not configured. Add your provider key to .env before starting an analysis.')
+  const runtime = await openaiClient(userId)
   const uniqueDatasetIds = [...new Set(datasetIds)]
   if (uniqueDatasetIds.length === 0 || uniqueDatasetIds.length > 5) throw appError('VALIDATION_ERROR')
   const ownedDatasets = await query<{ id: string }>(
@@ -294,7 +303,7 @@ export async function createAnalysis(userId: string, datasetIds: string[], missi
   await query(
     `insert into analyses (id, dataset_id, mission, status, model)
      values ($1, $2, $3, 'queued', $4)`,
-    [id, uniqueDatasetIds[0], mission, config.aiModel],
+    [id, uniqueDatasetIds[0], mission, runtime.model],
   )
   for (const [position, datasetId] of uniqueDatasetIds.entries()) {
     await query(
@@ -314,8 +323,8 @@ export async function createAnalysis(userId: string, datasetIds: string[], missi
 
 export async function runAnalysis(analysisId: string) {
   const analysisStartedAt = Date.now()
-  const analysisRows = await query<{ dataset_id: string; mission: string; user_id: string; created_at: string }>(
-    `select a.dataset_id, a.mission, a.created_at, w.owner_user_id as user_id from analyses a
+  const analysisRows = await query<{ dataset_id: string; mission: string; model: string; user_id: string; created_at: string }>(
+    `select a.dataset_id, a.mission, a.model, a.created_at, w.owner_user_id as user_id from analyses a
      join datasets d on d.id = a.dataset_id join workspaces w on w.id = d.workspace_id
      where a.id = $1`,
     [analysisId],
@@ -359,7 +368,7 @@ export async function runAnalysis(analysisId: string) {
     [analysisId],
   )
   const findings: AgentFinding[] = []
-  const client = openaiClient()
+  const client = await openaiClient(analysis.user_id, analysis.model)
   const operatingPreferences = preferencesPrompt(await getAiPreferences(analysis.user_id))
   const operatingMission = `${analysis.mission}\n\nEXECUTIVE OPERATING PREFERENCES\n${operatingPreferences}`
 
@@ -667,6 +676,7 @@ export async function runMeetingJob(jobId: string) {
   const comparative = conversationDatasetIds.length > 1
     const operatingPreferences = preferencesPrompt(await getAiPreferences(job.user_id))
     const businessNotes = await Promise.all(conversationDatasetIds.map((datasetId) => getDatasetNote(job.user_id, datasetId)))
+    const meetingClient = await openaiClient(job.user_id)
     const sharedInstructions = [
       `You are permanently assigned to this business context: ${contextDatasets.join(' + ')}.`,
       comparative
@@ -689,7 +699,7 @@ export async function runMeetingJob(jobId: string) {
       const current = await getMeetingJobInternal(jobId)
       if (current?.cancel_requested_at) throw appError('ANALYSIS_INTERRUPTED', { message: 'This meeting was cancelled.' })
       const { output } = await structuredCompletion(
-        openaiClient(),
+        meetingClient,
         TeamSpecialistResponseSchema,
         `${agentKey}_meeting_response`,
         [
@@ -722,7 +732,7 @@ export async function runMeetingJob(jobId: string) {
       await updateMeetingJob(jobId, { status: 'synthesizing', stage: 'atlas_synthesizing' })
       await addMeetingJobEvent(jobId, 'synthesis_started')
       const result = await structuredCompletion(
-        openaiClient(),
+        meetingClient,
         TeamSynthesisSchema,
         'team_meeting_synthesis',
         [

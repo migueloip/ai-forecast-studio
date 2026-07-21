@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { appError, normalizeError } from './errors/index.js'
+import { appError, normalizeError, safeRequestFailureLog } from './errors/index.js'
 
 test('preserves explicit public application errors', () => {
   const error = normalizeError(appError('VALIDATION_ERROR'))
@@ -27,4 +27,16 @@ test('distinguishes invalid provider output from provider timeouts', () => {
   assert.equal(error.code, 'AI_INVALID_RESPONSE')
   assert.equal(error.status, 502)
   assert.equal(error.publicMessage.includes('schema'), false)
+})
+
+test('server failure logs exclude raw provider errors and credentials', () => {
+  const raw = new Error('Authorization: Bearer nvapi-private provider response body')
+  const normalized = appError('AI_UNAVAILABLE', { cause: raw })
+  const logged = safeRequestFailureLog(normalized, 'request_12345678')
+  assert.deepEqual(JSON.parse(logged), {
+    event: 'request_failed', requestId: 'request_12345678', code: 'AI_UNAVAILABLE', status: 503,
+  })
+  assert.equal(logged.includes('nvapi-private'), false)
+  assert.equal(logged.includes('Authorization'), false)
+  assert.equal(logged.includes('provider response'), false)
 })

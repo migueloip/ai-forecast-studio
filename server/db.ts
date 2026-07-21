@@ -4,8 +4,8 @@ import { config } from './config.js'
 let client: ReturnType<typeof neon> | undefined
 
 export class ConfigurationError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause })
     this.name = 'ConfigurationError'
   }
 }
@@ -31,4 +31,3 @@ export async function databaseIsReachable() {
     return false
   }
 }
-

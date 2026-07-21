@@ -376,6 +376,18 @@ export interface AiPreferences {
   updated_at: string | null
 }
 
+export interface AiCredentialStatus {
+  configured: boolean
+  source: 'user' | 'server' | 'none'
+  provider: 'nvidia' | 'server'
+  maskedKey: string | null
+  model: string
+  baseUrl: string
+  encryptedAtRest: boolean
+  encryptionReady: boolean
+  updatedAt: string | null
+}
+
 export interface Bookmark {
   id: string
   dataset_id: string | null
@@ -592,6 +604,26 @@ export function getAiPreferences() {
 
 export function saveAiPreferences(preferences: AiPreferences) {
   return request<{ preferences: AiPreferences }>('/api/preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(preferences) })
+}
+
+export function getAiCredential() {
+  return request<{ credential: AiCredentialStatus }>('/api/ai-credential')
+}
+
+export function saveNvidiaCredential(apiKey: string, model: string) {
+  return request<{ credential: AiCredentialStatus }>('/api/ai-credential', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, model }),
+  })
+}
+
+export function deleteAiCredential() {
+  return request<{ credential: AiCredentialStatus }>('/api/ai-credential', { method: 'DELETE' })
+}
+
+export function testNvidiaCredential(apiKey: string, model: string) {
+  return request<{ ok: true; model: string }>('/api/ai-credential/test', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey, model }),
+  })
 }
 
 export function getDatasetNote(datasetId: string) {

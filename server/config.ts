@@ -17,6 +17,14 @@ function reasoningEffort(value: string | undefined): 'low' | 'medium' | 'high' {
 const usingLegacyNvidiaKey = Boolean(process.env.api_key)
 const defaultOrigins = 'http://localhost:5173,http://127.0.0.1:5173'
 
+function validEncryptionKey(value: string) {
+  try {
+    return Buffer.from(value, 'base64').length === 32
+  } catch {
+    return false
+  }
+}
+
 export const config = {
   port: positiveInteger(process.env.PORT ?? process.env.API_PORT, 8787),
   appOrigins: (process.env.APP_ORIGIN ?? defaultOrigins).split(',').map((origin) => origin.trim()).filter(Boolean),
@@ -30,6 +38,7 @@ export const config = {
   aiBriefingMaxTokens: positiveInteger(process.env.AI_BRIEFING_MAX_TOKENS, 1_600),
   aiReasoningEffort: reasoningEffort(process.env.AI_REASONING_EFFORT),
   meetingJobTimeoutMs: positiveInteger(process.env.MEETING_JOB_TIMEOUT_MS, 360_000),
+  credentialEncryptionKey: process.env.CREDENTIAL_ENCRYPTION_KEY ?? '',
   turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY ?? '',
   turnstileTimeoutMs: positiveInteger(process.env.TURNSTILE_TIMEOUT_MS, 10_000),
   maxUploadBytes: positiveInteger(process.env.MAX_UPLOAD_MB, 25) * 1024 * 1024,
@@ -40,6 +49,7 @@ export function configurationStatus() {
   return {
     database: Boolean(config.databaseUrl),
     openai: Boolean(config.aiApiKey),
+    credentialEncryption: validEncryptionKey(config.credentialEncryptionKey),
     turnstile: Boolean(config.turnstileSecretKey),
     model: config.aiModel,
     provider: new URL(config.aiBaseUrl).hostname,
