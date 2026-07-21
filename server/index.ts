@@ -1,5 +1,7 @@
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express'
 import { createHash, randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import cors from 'cors'
 import multer from 'multer'
 import { rateLimit } from 'express-rate-limit'
@@ -508,6 +510,19 @@ app.post('/api/team/ask', asyncRoute(async (request, response) => {
   response.status(202).json(result)
 }))
 
+// In production the built frontend (dist/) is served by this same process, so a single
+// deploy (e.g. one Render Web Service) exposes both the UI and the API on one origin.
+// In development the frontend is served by Vite, and dist/ is usually absent, so this is skipped.
+const clientDir = fileURLToPath(new URL('../dist', import.meta.url))
+const clientIndex = fileURLToPath(new URL('../dist/index.html', import.meta.url))
+if (existsSync(clientIndex)) {
+  app.use(express.static(clientDir))
+  app.use((request, response, next) => {
+    if (request.method === 'GET' && !request.path.startsWith('/api/')) response.sendFile(clientIndex)
+    else next()
+  })
+}
+
 app.use((_request, _response, next) => next(appError('ROUTE_NOT_FOUND')))
 
 const errorHandler: ErrorRequestHandler = (error, _request, response, next) => {
@@ -547,9 +562,10 @@ async function start() {
     }, 60_000)
     meetingRecoveryTimer.unref()
   }
-  app.listen(config.port, '127.0.0.1', () => {
+  const host = process.env.HOST ?? '0.0.0.0'
+  app.listen(config.port, host, () => {
     const status = configurationStatus()
-    console.log(`AI Forecast API listening on http://127.0.0.1:${config.port}`)
+    console.log(`AI Forecast API listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${config.port}`)
     if (!status.database || !status.openai) console.log('Configuration required: copy .env.example to .env and add Neon/inference credentials.')
   })
 }

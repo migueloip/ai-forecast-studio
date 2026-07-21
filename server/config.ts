@@ -18,7 +18,7 @@ const usingLegacyNvidiaKey = Boolean(process.env.api_key)
 const defaultOrigins = 'http://localhost:5173,http://127.0.0.1:5173'
 
 export const config = {
-  port: positiveInteger(process.env.API_PORT, 8787),
+  port: positiveInteger(process.env.PORT ?? process.env.API_PORT, 8787),
   appOrigins: (process.env.APP_ORIGIN ?? defaultOrigins).split(',').map((origin) => origin.trim()).filter(Boolean),
   databaseUrl: process.env.DATABASE_URL ?? '',
   aiApiKey: process.env.AI_API_KEY ?? process.env.NVIDIA_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.api_key ?? '',

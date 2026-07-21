@@ -227,7 +227,9 @@ All configuration is via `.env` (see [`.env.example`](.env.example)):
 | `MEETING_JOB_TIMEOUT_MS` | Team‑meeting job budget | `360000` |
 | `FORECAST_PYTHON_BIN` | Python interpreter for the engine | `.venv/bin/python` |
 | `FORECAST_ENGINE_TIMEOUT_MS` | Engine execution budget | `180000` |
-| `API_PORT` | API port | `8787` |
+| `PORT` | Port the server binds (takes precedence over `API_PORT`; set automatically by hosts like Render) | — |
+| `API_PORT` | API port when `PORT` is unset | `8787` |
+| `HOST` | Interface to bind | `0.0.0.0` |
 | `APP_ORIGIN` | CSRF/CORS origin allowlist (comma‑separated) | `http://localhost:5173,http://127.0.0.1:5173` |
 | `MAX_UPLOAD_MB` | Max upload size | `25` |
 | `MAX_DATASET_ROWS` | Max rows per dataset | `50000` |
@@ -246,7 +248,7 @@ AI_MODEL=gpt-5.4-mini
 
 ## Production deployment
 
-Build the browser app and the server separately:
+The build produces the frontend in `dist/` and the API in `dist-server/`. In production the API process **serves `dist/` itself** (static assets plus an SPA fallback to `index.html`) and binds `0.0.0.0:$PORT`, so a **single service exposes both the UI and `/api` on one origin** — which is also what the same‑origin session cookies expect.
 
 ```bash
 npm ci
@@ -256,14 +258,20 @@ npm run db:migrate
 NODE_ENV=production npm run start:server
 ```
 
-The build writes the frontend to `dist/` and the API to `dist-server/`. The Express process listens on `127.0.0.1:$API_PORT` and does not serve the frontend, so place both behind a reverse proxy or platform router that:
+### One service (e.g. Render, Railway, Fly, a container)
 
-- serves `dist/` for browser routes and falls back to `index.html`;
-- forwards `/api/*` to the Express process;
-- terminates HTTPS, which is required for production session cookies;
-- preserves the same public origin for the UI and `/api`, or sets `APP_ORIGIN` to every allowed frontend origin.
+| Setting | Value |
+| --- | --- |
+| **Build Command** | `npm ci && npm run build && npm run db:migrate` |
+| **Start Command** | `npm run start:server` |
 
-The API also applies its idempotent schema at startup when `DATABASE_URL` is configured; running `npm run db:migrate` explicitly keeps deployment failures visible before traffic is switched over.
+The host injects `PORT`; the server reads it automatically (falling back to `API_PORT`, then `8787`) and listens on `0.0.0.0`. Set the environment variables from [Configuration](#configuration) — at minimum `DATABASE_URL`, `AI_API_KEY`, and `APP_ORIGIN` set to your deployed HTTPS origin (required for the secure session cookie and the mutation‑origin allowlist). The `forecast:setup` step needs Python 3.12 and `uv` in the build image; omit it to run on the validated statistical fallback.
+
+The API applies its idempotent schema at startup when `DATABASE_URL` is set; running `npm run db:migrate` in the build step keeps migration failures visible before traffic is switched over.
+
+### Split (static site + API) — optional
+
+You can still host `dist/` as a static site and run the API separately. Point a router/CDN so it forwards `/api/*` to the API service, serves `dist/` with an `index.html` fallback for browser routes, terminates HTTPS, and set `APP_ORIGIN` to every frontend origin that may call the API.
 
 ---
 
