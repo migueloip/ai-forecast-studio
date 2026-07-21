@@ -8,11 +8,12 @@ Transforms business data into statistically validated forecasts, executive recom
 
 ![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
-![Node](https://img.shields.io/badge/Node-20%2B-339933?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/Node-20.19%20%7C%2022.12%2B-339933?logo=nodedotjs&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)
 ![Neon Postgres](https://img.shields.io/badge/Neon-Postgres-00E599?logo=postgresql&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Tests](https://img.shields.io/badge/server%20tests-29%20passing-brightgreen)
+![Forecast tests](https://img.shields.io/badge/forecast%20tests-3%20passing-brightgreen)
 
 </div>
 
@@ -26,7 +27,9 @@ Transforms business data into statistically validated forecasts, executive recom
 - [Architecture](#architecture)
 - [The forecast engine](#the-forecast-engine)
 - [Quick start](#quick-start)
+- [Input data](#input-data)
 - [Configuration](#configuration)
+- [Production deployment](#production-deployment)
 - [Project structure](#project-structure)
 - [API reference](#api-reference)
 - [Security model](#security-model)
@@ -86,7 +89,7 @@ Each analysis runs a five‑specialist workflow, orchestrated by a team lead who
 flowchart LR
     U[Browser<br/>React + Vite] -->|/api proxy| A[Express API]
     A -->|SQL| N[(Neon<br/>Postgres)]
-    A -->|Chat Completions<br/>Zod-validated JSON| L[OpenAI-compatible LLM<br/>NVIDIA gpt-oss-120b]
+    A -->|Chat Completions<br/>Zod-validated JSON| L[OpenAI-compatible LLM<br/>configured provider + model]
     A -->|stdin/stdout JSON| P[Python Forecast Engine<br/>19-model tournament]
 
     subgraph Deterministic
@@ -103,7 +106,7 @@ flowchart LR
 | **Frontend** | React 19, TypeScript, Vite, React Router, Lucide icons |
 | **API** | Express 5, multipart uploads (multer), async analysis & meeting workers, rate limiting |
 | **Database** | Neon Postgres via `@neondatabase/serverless`, idempotent SQL migrations |
-| **AI** | OpenAI JS SDK against an OpenAI‑compatible endpoint (NVIDIA `gpt-oss-120b` by default), Zod‑validated structured outputs |
+| **AI** | OpenAI JS SDK against an OpenAI‑compatible endpoint (the example configuration uses NVIDIA `gpt-oss-120b`), Zod‑validated structured outputs |
 | **Forecasting** | Python 3.12 subprocess: NumPy, SciPy, statsmodels, scikit‑learn, Prophet, XGBoost, LightGBM, CatBoost, TensorFlow (all optional at runtime) |
 
 The inference provider only ever receives the dataset **profile**, aggregated **time series**, and a **redacted sample** — never the full source records, which stay in Neon. Reasoning content is never exposed in the product UI.
@@ -144,7 +147,7 @@ If the engine is unavailable, the API degrades gracefully to a validated statist
 
 ## Quick start
 
-**Requirements:** Node.js 20+, a [Neon](https://neon.tech) project, an NVIDIA API key (or any OpenAI‑compatible endpoint), and — for the full model tournament — Python 3.12 with [`uv`](https://github.com/astral-sh/uv).
+**Requirements:** Node.js 20.19.x or 22.12+, npm, a [Neon](https://neon.tech) project, and credentials for NVIDIA or another OpenAI‑compatible inference endpoint. The full model tournament additionally needs Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 # 1. Install JS dependencies
@@ -152,7 +155,7 @@ npm install
 
 # 2. Configure environment
 cp .env.example .env
-#   → fill in DATABASE_URL and AI_API_KEY (see Configuration below)
+# Edit .env and set DATABASE_URL and AI_API_KEY
 
 # 3. (Optional but recommended) set up the Python forecast engine
 npm run forecast:setup      # creates .venv and installs the scientific stack
@@ -169,9 +172,40 @@ npm run dev
 - **Web** → http://localhost:5173 (Vite)
 - **API** → http://127.0.0.1:8787 (Express, with a dev proxy from `/api`)
 
-Then create an account, connect a dataset (or use the built‑in **Northstar Retail** sample), deploy your AI team, and open the Command Center when Atlas's briefing is ready.
+Confirm that both required services are configured:
+
+```bash
+curl http://127.0.0.1:8787/api/health
+```
+
+A ready installation returns `"status":"ready"` with both `database` and `openai` set to `true`. Then create an account, connect a dataset (or use the built‑in **Northstar Retail** sample), deploy your AI team, and open the Command Center when Atlas's briefing is ready.
 
 > Without the Python engine, forecasting automatically uses the validated statistical fallback — the app still runs end‑to‑end.
+
+---
+
+## Input data
+
+The uploader accepts one file at a time. Spreadsheet formats use the first row as column names. Defaults are 25 MB and 50,000 records per dataset; both limits are configurable.
+
+| Format | Expected shape |
+| --- | --- |
+| **CSV** | Header row followed by records; UTF‑8 BOM is supported |
+| **XLSX** | First worksheet with a header row and at least one data row |
+| **JSON** | An array of objects, or an object containing a `data` array |
+
+For useful time‑series analytics, include at least one date column and one numeric metric. Roles are inferred from types and common names, then can be corrected in the dataset mapping UI.
+
+| Business role | Common inferred names |
+| --- | --- |
+| Date | `date`, `day`, `week`, `month`, `timestamp`, `time` |
+| Revenue | `revenue`, `sales`, `net_sales`, `turnover`, `income` |
+| Demand | `quantity`, `qty`, `units`, `demand`, `orders` |
+| Inventory | `inventory`, `stock`, `on_hand`, `available` |
+| Price | `price`, `unit_price`, `selling_price` |
+| Cost | `cost`, `cogs`, `expense` |
+
+Other numeric columns remain available as generic metrics, and text columns become dimensions. Columns whose names indicate names, emails, phone numbers, addresses, tax IDs or customer/user IDs are removed from the sample sent to the inference provider.
 
 ---
 
@@ -179,7 +213,7 @@ Then create an account, connect a dataset (or use the built‑in **Northstar Ret
 
 All configuration is via `.env` (see [`.env.example`](.env.example)):
 
-| Variable | Purpose | Default |
+| Variable | Purpose | Value in `.env.example` |
 | --- | --- | --- |
 | `DATABASE_URL` | Neon pooled connection string | — (required) |
 | `AI_BASE_URL` | OpenAI‑compatible endpoint | `https://integrate.api.nvidia.com/v1` |
@@ -198,6 +232,8 @@ All configuration is via `.env` (see [`.env.example`](.env.example)):
 | `MAX_UPLOAD_MB` | Max upload size | `25` |
 | `MAX_DATASET_ROWS` | Max rows per dataset | `50000` |
 
+The template explicitly selects NVIDIA. If `AI_BASE_URL` and `AI_MODEL` are omitted, the application defaults to the native OpenAI endpoint and `gpt-5.4-mini`. `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL` are also accepted as compatibility aliases. When `FORECAST_PYTHON_BIN` is unset, the server uses `.venv/bin/python` when present and otherwise tries `python3`.
+
 **Using the native OpenAI API instead of NVIDIA:**
 
 ```dotenv
@@ -205,6 +241,29 @@ AI_BASE_URL=https://api.openai.com/v1
 AI_API_KEY=sk-proj-...
 AI_MODEL=gpt-5.4-mini
 ```
+
+---
+
+## Production deployment
+
+Build the browser app and the server separately:
+
+```bash
+npm ci
+npm run forecast:setup   # optional; omit to use the statistical fallback
+npm run build
+npm run db:migrate
+NODE_ENV=production npm run start:server
+```
+
+The build writes the frontend to `dist/` and the API to `dist-server/`. The Express process listens on `127.0.0.1:$API_PORT` and does not serve the frontend, so place both behind a reverse proxy or platform router that:
+
+- serves `dist/` for browser routes and falls back to `index.html`;
+- forwards `/api/*` to the Express process;
+- terminates HTTPS, which is required for production session cookies;
+- preserves the same public origin for the UI and `/api`, or sets `APP_ORIGIN` to every allowed frontend origin.
+
+The API also applies its idempotent schema at startup when `DATABASE_URL` is configured; running `npm run db:migrate` explicitly keeps deployment failures visible before traffic is switched over.
 
 ---
 
@@ -229,8 +288,8 @@ AI_MODEL=gpt-5.4-mini
 │   ├── orchestrator.ts       # Multi-agent analysis & meeting workers
 │   ├── reliability.ts        # Job recovery / retry logic
 │   ├── repositories.ts       # Data access & ownership enforcement
+│   ├── schema.ts             # Idempotent Neon schema statements
 │   ├── errors/               # Centralized error catalog
-│   ├── db/migrations/        # 001…005 idempotent SQL migrations
 │   └── *.test.ts             # 29 node:test cases
 │
 └── forecast_engine/          # Python scientific runtime
@@ -287,7 +346,9 @@ Every `/api` route except health, registration, login, token issuance and public
 | `POST` | `/api/analyses/:id/retry` | Resume a failed analysis from the first incomplete agent |
 | `GET` | `/api/analyses/latest/current` | Latest analysis |
 | `GET` | `/api/analysis-contexts` | Available business contexts |
-| `GET` | `/api/team/conversations[/:id]` | Meeting history / a conversation |
+| `GET` | `/api/team/conversations` | Meeting history for the selected analysis context |
+| `GET` | `/api/team/conversations/:id` | One persisted conversation |
+| `GET` | `/api/team/conversations/:id/context` | Resolve a conversation deep link to its dataset context |
 | `POST` | `/api/team/ask` | Ask one specialist or the whole team *(async, 202)* |
 | `GET` | `/api/team/jobs/:id` | Poll a meeting job |
 | `POST` | `/api/team/jobs/:id/cancel` | Cancel a running meeting |
@@ -324,7 +385,7 @@ Every `/api` route except health, registration, login, token issuance and public
 
 - **Passwords** hashed with `scrypt` and compared in constant time (`timingSafeEqual`).
 - **Sessions** are opaque random tokens; only their SHA‑256 hashes are persisted, and logout revokes them. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production.
-- **CSRF** — mutating requests must originate from the `APP_ORIGIN` allowlist.
+- **CSRF/CORS** — browser mutations carrying an `Origin` header must match the `APP_ORIGIN` allowlist; credentialed cross‑origin responses use the same list.
 - **Rate limiting** on auth endpoints.
 - **Row ownership** enforced on every dataset and analysis query.
 - **Data minimization** — the LLM receives only profiles, aggregates and redacted samples; sensitive columns detected at ingestion are excluded from model samples.
@@ -339,11 +400,11 @@ Every `/api` route except health, registration, login, token issuance and public
 npm run lint            # ESLint
 npm run build           # tsc (web + server) and Vite build
 npm run test:server     # 29 node:test cases
-npm run test:forecast   # Python engine unittest suite (needs .venv)
+npm run test:forecast   # 3 Python engine tests (needs .venv)
 npm audit --omit=dev    # dependency audit
 ```
 
-Server tests cover analytics, ingestion, error normalization, formatting, job reliability/recovery, meeting deep‑links, and Decision Room scenario history.
+Server tests cover analytics, ingestion, error normalization, formatting, job reliability/recovery, meeting deep‑links, and Decision Room scenario history. Forecast tests cover cadence detection, common walk‑forward validation, complexity rejection on short histories, confidence recomputation, and interval ordering.
 
 ---
 
