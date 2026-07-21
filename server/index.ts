@@ -24,6 +24,10 @@ import {
 } from './executive.js'
 
 const app = express()
+// Render terminates HTTPS at its reverse proxy before forwarding requests here.
+// Trust exactly that first hop so Express and express-rate-limit use the client IP
+// from X-Forwarded-For without accepting an arbitrarily long proxy chain.
+app.set('trust proxy', 1)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxUploadBytes, files: 1 },
