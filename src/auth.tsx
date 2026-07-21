@@ -5,8 +5,8 @@ import { getCurrentUser, login as loginRequest, logout as logoutRequest, registe
 interface AuthContextValue {
   user: User | null
   loading: boolean
-  login: (email: string, password: string) => Promise<User>
-  register: (fullName: string, email: string, password: string) => Promise<User>
+  login: (email: string, password: string, turnstileToken: string) => Promise<User>
+  register: (fullName: string, email: string, password: string, turnstileToken: string) => Promise<User>
   logout: () => Promise<void>
 }
 
@@ -30,13 +30,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     loading,
-    async login(email, password) {
-      const result = await loginRequest(email, password)
+    async login(email, password, turnstileToken) {
+      const result = await loginRequest(email, password, turnstileToken)
       setUser(result.user)
       return result.user
     },
-    async register(fullName, email, password) {
-      const result = await registerRequest(fullName, email, password)
+    async register(fullName, email, password, turnstileToken) {
+      const result = await registerRequest(fullName, email, password, turnstileToken)
       setUser(result.user)
       return result.user
     },

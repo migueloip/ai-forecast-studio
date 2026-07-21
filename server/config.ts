@@ -30,6 +30,8 @@ export const config = {
   aiBriefingMaxTokens: positiveInteger(process.env.AI_BRIEFING_MAX_TOKENS, 1_600),
   aiReasoningEffort: reasoningEffort(process.env.AI_REASONING_EFFORT),
   meetingJobTimeoutMs: positiveInteger(process.env.MEETING_JOB_TIMEOUT_MS, 360_000),
+  turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY ?? '',
+  turnstileTimeoutMs: positiveInteger(process.env.TURNSTILE_TIMEOUT_MS, 10_000),
   maxUploadBytes: positiveInteger(process.env.MAX_UPLOAD_MB, 25) * 1024 * 1024,
   maxDatasetRows: positiveInteger(process.env.MAX_DATASET_ROWS, 50_000),
 }
@@ -38,6 +40,7 @@ export function configurationStatus() {
   return {
     database: Boolean(config.databaseUrl),
     openai: Boolean(config.aiApiKey),
+    turnstile: Boolean(config.turnstileSecretKey),
     model: config.aiModel,
     provider: new URL(config.aiBaseUrl).hostname,
   }

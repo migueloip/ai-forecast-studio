@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { ArrowRight, BarChart3, Check, Eye, EyeOff, LockKeyhole, Sparkles } from 'lucide-react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
+import { TurnstileWidget } from '../components/TurnstileWidget'
 import { safeErrorMessage } from '../errors'
 
 export function LoginPage({ mode }: { mode: 'login' | 'register' }) {
@@ -14,20 +15,30 @@ export function LoginPage({ mode }: { mode: 'login' | 'register' }) {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileError, setTurnstileError] = useState('')
+  const [challengeVersion, setChallengeVersion] = useState(0)
+  const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() ?? ''
 
   if (user) return <Navigate to="/app" replace />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
+    if (!turnstileToken) {
+      setTurnstileError('Complete the security verification to continue.')
+      return
+    }
     setSubmitting(true)
     try {
-      if (mode === 'register') await register(fullName, email, password)
-      else await login(email, password)
+      if (mode === 'register') await register(fullName, email, password, turnstileToken)
+      else await login(email, password, turnstileToken)
       const from = (location.state as { from?: string } | null)?.from
       navigate(from?.startsWith('/app') ? from : mode === 'register' ? '/onboarding' : '/app', { replace: true })
     } catch (caught) {
       setError(safeErrorMessage(caught, 'We could not access your workspace.'))
+      setTurnstileToken('')
+      setChallengeVersion((version) => version + 1)
     } finally {
       setSubmitting(false)
     }
@@ -48,8 +59,19 @@ export function LoginPage({ mode }: { mode: 'login' | 'register' }) {
         {mode === 'register' && <label><span>Full name</span><input autoComplete="name" required minLength={2} value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Alex Morgan" /></label>}
         <label><span>Work email</span><input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="alex@company.com" /></label>
         <label><span>Password</span><div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={10} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 10 characters" /><button type="button" onClick={() => setShowPassword((shown) => !shown)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div></label>
+        {turnstileSiteKey
+          ? <TurnstileWidget
+              key={`${mode}-${challengeVersion}`}
+              siteKey={turnstileSiteKey}
+              action={mode}
+              onToken={(token) => { setTurnstileToken(token); setTurnstileError('') }}
+              onExpired={() => { setTurnstileToken(''); setTurnstileError('The security verification expired. Complete it again.') }}
+              onError={() => { setTurnstileToken(''); setTurnstileError('Security verification could not load. Try again.') }}
+            />
+          : <div className="auth-error">Security verification is not configured.</div>}
+        {turnstileError && <div className="auth-error">{turnstileError}</div>}
         {error && <div className="auth-error">{error}</div>}
-        <button className="button button-dark auth-submit" disabled={submitting}>{submitting ? <><span className="spinner" /> Securing workspace...</> : <>{mode === 'login' ? 'Enter Command Center' : 'Create secure workspace'} <ArrowRight size={15} /></>}</button>
+        <button className="button button-dark auth-submit" disabled={submitting || !turnstileToken}>{submitting ? <><span className="spinner" /> Securing workspace...</> : <>{mode === 'login' ? 'Enter Command Center' : 'Create secure workspace'} <ArrowRight size={15} /></>}</button>
         <div className="auth-switch">{mode === 'login' ? <>New to Forecast Studio? <Link to="/register">Create an account</Link></> : <>Already have a workspace? <Link to="/login">Sign in</Link></>}</div>
       </form>
     </section>

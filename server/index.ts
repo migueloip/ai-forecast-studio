@@ -9,6 +9,7 @@ import { authenticateUser, createSession, destroySession, registerUser, requireA
 import { config, configurationStatus } from './config.js'
 import { databaseIsReachable } from './db.js'
 import { appError, normalizeError, sendErrorResponse } from './errors/index.js'
+import { requireTurnstile } from './turnstile.js'
 import { createSampleDataset, parseDataset, profileDataset } from './ingestion.js'
 import { migrate } from './migrate.js'
 import { cancelRunningMeetingJob, createAnalysis, enqueueTeamMeeting, getAnalysis, getLatestAnalysis, listAnalysisContexts, recoverInterruptedAnalyses, retryAnalysis, runAnalysis, runMeetingJob } from './orchestrator.js'
@@ -72,8 +73,8 @@ app.get('/api/health', asyncRoute(async (_request, response) => {
   const status = configurationStatus()
   const database = status.database ? await databaseIsReachable() : false
   response.json({
-    status: database && status.openai ? 'ready' : 'configuration_required',
-    services: { database, openai: status.openai },
+    status: database && status.openai && status.turnstile ? 'ready' : 'configuration_required',
+    services: { database, openai: status.openai, turnstile: status.turnstile },
     model: status.model,
     provider: status.provider,
   })
@@ -91,6 +92,7 @@ app.post('/api/auth/register', authLimiter, asyncRoute(async (request, response)
   if (fullName.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 10) {
     throw appError('VALIDATION_ERROR', { message: 'Enter a valid name, email, and a password of at least 10 characters.' })
   }
+  await requireTurnstile(request, 'register')
   const user = await registerUser(fullName.slice(0, 100), email.slice(0, 254), password)
   await createSession(response, user.id)
   await notifySafely(user.id, {
@@ -104,6 +106,7 @@ app.post('/api/auth/register', authLimiter, asyncRoute(async (request, response)
 app.post('/api/auth/login', authLimiter, asyncRoute(async (request, response) => {
   const email = typeof request.body?.email === 'string' ? request.body.email : ''
   const password = typeof request.body?.password === 'string' ? request.body.password : ''
+  await requireTurnstile(request, 'login')
   const user = await authenticateUser(email, password)
   if (!user) {
     throw appError('AUTH_INVALID')

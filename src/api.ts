@@ -513,19 +513,19 @@ export function getCurrentUser() {
   return request<{ user: User }>('/api/auth/me')
 }
 
-export function login(email: string, password: string) {
+export function login(email: string, password: string, turnstileToken: string) {
   return request<{ user: User }>('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, turnstileToken }),
   })
 }
 
-export function register(fullName: string, email: string, password: string) {
+export function register(fullName: string, email: string, password: string, turnstileToken: string) {
   return request<{ user: User }>('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fullName, email, password }),
+    body: JSON.stringify({ fullName, email, password, turnstileToken }),
   })
 }
 

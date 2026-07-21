@@ -6,6 +6,8 @@ export const ErrorCatalog = {
   VALIDATION_ERROR: { status: 400, message: 'Review the information provided and try again.' },
   AUTH_REQUIRED: { status: 401, message: 'Your session has expired. Sign in again to continue.' },
   AUTH_INVALID: { status: 401, message: 'The email or password is incorrect.' },
+  TURNSTILE_FAILED: { status: 400, message: 'Complete the security verification and try again.' },
+  TURNSTILE_UNAVAILABLE: { status: 503, message: 'Security verification is temporarily unavailable. Please try again shortly.' },
   FORBIDDEN: { status: 403, message: 'This request is not allowed from the current origin.' },
   ACCOUNT_EXISTS: { status: 409, message: 'An account with this email already exists.' },
   NOT_FOUND: { status: 404, message: 'The requested resource could not be found.' },

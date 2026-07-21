@@ -386,3 +386,4 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .conversation-job-status.cancelled{color:#65736c;background:#edf1ee}.meeting-job-failed.is-cancelled{border-color:#dce3de;background:#f7f9f7}.meeting-job-failed.is-cancelled b{color:#586a60}
 @media(max-width:700px){.meeting-job-progress{align-items:flex-start;flex-wrap:wrap}.meeting-job-progress>.meeting-cancel-job{margin-left:30px}.board-recalculation-delta>.board-scenario-results{grid-template-columns:1fr 1fr}}
 @media(max-width:480px){.board-recalculation-delta>.board-scenario-assumptions,.board-recalculation-delta>.board-scenario-results{grid-template-columns:1fr}}
+.turnstile-widget{width:100%;min-height:65px;margin:2px 0 15px}
