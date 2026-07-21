@@ -2,9 +2,9 @@
 
 # 🧭 AI Forecast Studio
 
-**An AI data‑science team for small businesses — from raw data to a defensible decision in minutes.**
+**An Executive Operating System powered by a collaborative AI Data Science Team.**
 
-Upload a spreadsheet and a team of specialized AI agents prepares your data, forecasts revenue and demand with a real statistical model tournament, quantifies the risk, and recommends what to do next — every number is computed deterministically, and the AI only *explains* it.
+Transforms business data into statistically validated forecasts, executive recommendations, and explainable decisions. Upload a spreadsheet and a team of specialized AI agents prepares your data, forecasts revenue and demand with a real statistical model tournament, quantifies the risk, and recommends what to do next — every number is computed deterministically, and the AI only *explains* it.
 
 ![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
